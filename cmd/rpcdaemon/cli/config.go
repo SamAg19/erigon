@@ -957,8 +957,39 @@ func listenHostPort(host string, port int) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+// engineSocketMode lets a CL running under a different uid in the same group connect.
+const engineSocketMode = 0o660
+
+// engineListenEndpoint returns the Engine API listen URL and, for a Unix socket, its absolute
+// path. A stale socket left behind by an unclean shutdown is removed so the listen does not
+// fail with EADDRINUSE; a non-socket file at that path is never removed.
+func engineListenEndpoint(cfg *httpcfg.HttpCfg) (endpoint string, socketPath string, err error) {
+	if cfg.AuthRpcSocketPath == "" || cfg.AuthRpcListener != nil {
+		return "tcp://" + listenHostPort(cfg.AuthRpcHTTPListenAddress, cfg.AuthRpcPort), "", nil
+	}
+	socketPath, err = filepath.Abs(cfg.AuthRpcSocketPath)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid authrpc.socket path %s: %w", cfg.AuthRpcSocketPath, err)
+	}
+	info, err := os.Lstat(socketPath)
+	switch {
+	case err == nil && info.Mode()&os.ModeSocket != 0:
+		if err := os.Remove(socketPath); err != nil {
+			return "", "", fmt.Errorf("could not remove stale engine socket %s: %w", socketPath, err)
+		}
+	case err == nil:
+		return "", "", fmt.Errorf("authrpc.socket path %s exists and is not a socket", socketPath)
+	case !errors.Is(err, os.ErrNotExist):
+		return "", "", fmt.Errorf("could not stat authrpc.socket path %s: %w", socketPath, err)
+	}
+	return "unix://" + socketPath, socketPath, nil
+}
+
 func createEngineListener(cfg *httpcfg.HttpCfg, engineApi []rpc.API, logger log.Logger) (*http.Server, *rpc.Server, string, error) {
-	engineHttpEndpoint := "tcp://" + listenHostPort(cfg.AuthRpcHTTPListenAddress, cfg.AuthRpcPort)
+	engineHttpEndpoint, engineSocketPath, err := engineListenEndpoint(cfg)
+	if err != nil {
+		return nil, nil, "", err
+	}
 
 	engineSrv := rpc.NewServer(cfg.RpcBatchConcurrency, cfg.TraceRequests, cfg.DebugSingleRequest, true, logger, cfg.RPCSlowLogThreshold)
 	engineSrv.SetBatchLimit(cfg.BatchLimit)
@@ -993,6 +1024,12 @@ func createEngineListener(cfg *httpcfg.HttpCfg, engineApi []rpc.API, logger log.
 	}, engineApiHandler)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("could not start RPC api: %w", err)
+	}
+	if engineSocketPath != "" {
+		if err := os.Chmod(engineSocketPath, engineSocketMode); err != nil {
+			_ = engineListener.Close()
+			return nil, nil, "", fmt.Errorf("could not set engine socket permissions: %w", err)
+		}
 	}
 
 	engineInfo := []any{"url", engineAddr}

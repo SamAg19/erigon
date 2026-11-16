@@ -92,6 +92,10 @@ type HttpCfg struct {
 	AuthRpcPort    int
 	PrivateApiAddr string
 
+	// AuthRpcSocketPath, when set, serves the Engine API on this Unix socket
+	// instead of AuthRpcHTTPListenAddress:AuthRpcPort.
+	AuthRpcSocketPath string
+
 	API                               []string
 	Gascap                            uint64
 	BlockRangeLimit                   int

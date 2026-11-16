@@ -385,6 +385,11 @@ var (
 		Usage: "HTTP-RPC server listening port for the Engine API",
 		Value: nodecfg.DefaultAuthRpcPort,
 	}
+	AuthRpcSocket = cli.StringFlag{
+		Name:  "authrpc.socket",
+		Usage: "Unix socket path for the Engine API. When set, it replaces the TCP listener (authrpc.addr and authrpc.port are ignored)",
+		Value: "",
+	}
 
 	JWTSecretPath = cli.StringFlag{
 		Name:  "authrpc.jwtsecret",
