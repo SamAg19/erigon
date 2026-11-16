@@ -957,8 +957,10 @@ func listenHostPort(host string, port int) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-// engineSocketMode lets a CL running under a different uid in the same group connect.
-const engineSocketMode = 0o660
+// engineSocketMode is world-writable so a CL in another container, under any uid, can connect.
+// The socket's directory, plus JWT, gate access. Experiment-grade: tighten to 0o660 with a
+// shared group outside the experiment.
+const engineSocketMode = 0o666
 
 // engineListenEndpoint returns the Engine API listen URL and, for a Unix socket, its absolute
 // path. A stale socket left behind by an unclean shutdown is removed so the listen does not
